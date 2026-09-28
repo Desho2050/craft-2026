@@ -12,7 +12,7 @@ import type { Block } from '../utils/blocks'
 
 export type NetMessage =
   | { t: 'join'; id: string; name: string; skin: string; seed: string }
-  | { t: 'state'; id: string; x: number; y: number; z: number; yaw: number }
+  | { t: 'state'; id: string; x: number; y: number; z: number; yaw: number; pitch: number }
   | { t: 'block'; x: number; y: number; z: number; b: Block }
   | { t: 'chat'; id: string; text: string; at: number }
   | { t: 'leave'; id: string }
@@ -89,6 +89,7 @@ export interface RemotePlayer {
   y: number
   z: number
   yaw: number
+  pitch: number
 }
 
 export class WorldSession {
@@ -97,6 +98,8 @@ export class WorldSession {
   onChat: ((id: string, text: string) => void) | null = null
   onRemoteBlock: ((x: number, y: number, z: number, b: Block) => void) | null = null
   onPlayersChanged: (() => void) | null = null
+  /** defence-in-depth gate — return false to drop an edit before it touches the world */
+  onBlockEdit: ((x: number, y: number, z: number, b: Block) => boolean) | null = null
   private lastSent = 0
 
   constructor(
@@ -113,11 +116,19 @@ export class WorldSession {
       case 'state':
         if (m.id !== this.selfId) {
           const isNew = !this.players.has(m.id)
-          this.players.set(m.id, { ...(this.players.get(m.id) ?? { id: m.id, name: '?' }), x: m.x, y: m.y, z: m.z, yaw: m.yaw })
+          this.players.set(m.id, {
+            ...(this.players.get(m.id) ?? { id: m.id, name: '?', x: 0, y: 40, z: 0, pitch: 0 }),
+            x: m.x,
+            y: m.y,
+            z: m.z,
+            yaw: m.yaw,
+            pitch: m.pitch,
+          })
           if (isNew) this.onPlayersChanged?.()
         }
         break
       case 'block':
+        if (this.onBlockEdit?.(m.x, m.y, m.z, m.b) === false) break
         this.onRemoteBlock?.(m.x, m.y, m.z, m.b)
         break
       case 'chat':
@@ -128,7 +139,7 @@ export class WorldSession {
         break
       case 'join':
         if (m.id !== this.selfId && !this.players.has(m.id)) {
-          this.players.set(m.id, { id: m.id, name: m.name, x: 0, y: 40, z: 0, yaw: 0 })
+          this.players.set(m.id, { id: m.id, name: m.name, x: 0, y: 100, z: 0, yaw: 0, pitch: 0 })
           this.onPlayersChanged?.()
         }
         break
@@ -136,10 +147,10 @@ export class WorldSession {
   }
 
   /** call from the render loop — throttled to ~10 Hz */
-  broadcastState(x: number, y: number, z: number, yaw: number, now: number): void {
+  broadcastState(x: number, y: number, z: number, yaw: number, pitch: number, now: number): void {
     if (now - this.lastSent < 100) return
     this.lastSent = now
-    this.transport.send({ t: 'state', id: this.selfId, x, y, z, yaw })
+    this.transport.send({ t: 'state', id: this.selfId, x, y, z, yaw, pitch })
   }
 
   broadcastBlock(x: number, y: number, z: number, b: Block): void {

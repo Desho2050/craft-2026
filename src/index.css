@@ -41,6 +41,20 @@ canvas {
   @apply border-red-900 bg-red-600 text-white;
 }
 
+/* eating bob — held food rises toward the view while R is held */
+@keyframes eat-bob {
+  0%,
+  100% {
+    transform: translate(-50%, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(-50%, -26px) rotate(-18deg);
+  }
+}
+.eat-bob {
+  animation: eat-bob 0.45s ease-in-out infinite;
+}
+
 /* thin scrollbars for the creative palette */
 ::-webkit-scrollbar {
   width: 8px;

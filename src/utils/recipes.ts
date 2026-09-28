@@ -11,6 +11,8 @@ export const PICKAXE: ItemId = 101
 export const AXE: ItemId = 102
 export const SHOVEL: ItemId = 103
 export const SWORD: ItemId = 104
+export const APPLE: ItemId = 105
+export const ROTTEN_FLESH: ItemId = 106
 
 export interface ItemStack {
   item: ItemId
@@ -23,6 +25,8 @@ interface ExtraItemDef {
   token: string
   glyph: string
   tool?: 'pickaxe' | 'axe' | 'shovel' | 'sword'
+  /** hunger points restored when eaten (R key) */
+  food?: number
 }
 
 const EXTRA_ITEMS: Record<number, ExtraItemDef> = {
@@ -31,11 +35,19 @@ const EXTRA_ITEMS: Record<number, ExtraItemDef> = {
   [AXE]: { token: 'axe', glyph: '🪓', tool: 'axe' },
   [SHOVEL]: { token: 'shovel', glyph: '🥄', tool: 'shovel' },
   [SWORD]: { token: 'sword', glyph: '🗡', tool: 'sword' },
+  [APPLE]: { token: 'apple', glyph: '🍎', food: 5 },
+  [ROTTEN_FLESH]: { token: 'rottenFlesh', glyph: '🍖', food: 4 },
 }
 
 export function isBlockItem(item: ItemId): boolean {
   return item in BLOCKS && item !== Block.Air
 }
+
+export function isFood(item: ItemId): boolean {
+  return EXTRA_ITEMS[item]?.food != null
+}
+
+export const foodValue = (item: ItemId): number => EXTRA_ITEMS[item]?.food ?? 0
 
 export function itemToken(item: ItemId): string {
   if (isBlockItem(item)) return BLOCKS[item as Block].token

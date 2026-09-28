@@ -18,6 +18,7 @@ export default function HUD() {
   const hotbar = useGameStore((s) => s.hotbar)
   const selected = useGameStore((s) => s.selectedSlot)
   const overlay = useGameStore((s) => s.overlay)
+  const eating = useGameStore((s) => s.eating)
   const lang = useGameStore((s) => s.lang)
   const mpEnabled = useNetStore((s) => s.enabled)
   const connected = useNetStore((s) => s.connected)
@@ -102,6 +103,13 @@ export default function HUD() {
       {hotbar[selected] && (
         <div className="absolute bottom-18 left-1/2 -translate-x-1/2 text-white/90 text-sm drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">
           {itemName(hotbar[selected]!.item, lang)}
+        </div>
+      )}
+
+      {/* eating animation — the held food bobs toward the mouth while R is held */}
+      {eating && hotbar[selected] && (
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 eat-bob">
+          <ItemIcon item={hotbar[selected]!.item} size={52} />
         </div>
       )}
 

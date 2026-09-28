@@ -27,15 +27,19 @@ npm run test:engine# 17 headless engine assertions (worldgen, raycast, crafting,
 | 9 | `src/utils/recipes.ts` | Shape-trimmed crafting matcher (Minecraft rules): Log→4 Planks, 2 Planks→4 Sticks, 3×3 Pickaxe/Axe/Shovel/Sword, 4 Sand→4 Glass. |
 | 10 | `src/components/UI/*` | `MainMenu` (mode + seed + language + online toggle), `HUD` (crosshair, hearts/food, hotbar, connection chip, toasts), `Inventory` (cursor-stack drag, 2×2 survival / 3×3 creative crafting, creative block palette). |
 | 11 | `src/utils/i18n.ts` | ar/en dictionary (Arabic default). RTL is handled by setting `dir` on `<html>` + Tailwind v4 **logical utilities** (`start/end/ms/me`) — every panel mirrors for free. |
-| 12 | `src/net/multiplayer.ts` | Transport-agnostic protocol (`NetMessage` union: join/state/block/chat/leave) with `WebSocketTransport`, `LoopbackTransport` (tests) and throttled `WorldSession`. Game glue in `src/net/session.ts`; relay server in `server/mpServer.ts` (rooms keyed by seed, late-joiner edit replay). |
+| 12 | `src/net/multiplayer.ts` | Transport-agnostic protocol (`NetMessage` union: join/state/block/chat/leave) with `WebSocketTransport`, `LoopbackTransport` (tests) and throttled `WorldSession`. Game glue in `src/net/session.ts`; relay server in `server/mpServer.ts` (rooms keyed by seed, late-joiner edit replay). Shared gates live in `src/net/validate.ts`. |
+| 13 | `src/utils/particles.ts` + `src/components/Particles.tsx` | Break/place/melee VFX: the store fires `particleHooks.burst(...)`, the scene pools 128 textured mini-cubes per block type, one InstancedMesh each, and integrates motion analytically — no particle state ever reaches React. |
 
 ## Controls
-WASD move · Space jump · Shift sprint · **F** fly (creative) · LMB break · RMB place ·
-MMB pick block (creative) · 1-9 hotbar · E inventory/crafting · Esc pause
+WASD move · Space jump · Shift sprint · **F** fly (creative) · LMB break / attack (sword) · RMB place ·
+MMB pick block (creative) · **R** eat held food · 1-9 hotbar · E inventory/crafting · Esc pause
 
 ## Survival vs Creative
 - **Survival:** hunger drains (faster when sprinting), regen above 16 food, starvation damage,
   tool-gated mining (stone needs a pickaxe, logs an axe), mobs deal damage, drops go to inventory, die → respawn screen.
+  Food: apples drop from leaves (25%) and rotten flesh from killed zombies — both restore hunger (+5 / +4).
+  Zombies have 10 HP, take 5 per sword hit, show a health bar when wounded, and the population of 6
+  follows the player (mobs beyond 96 blocks despawn, a 20s maintain tick refills the ring).
 - **Creative:** flight, infinite stacks, instant break, block-pick, full palette, 3×3 crafting.
 
 ## Persistence
@@ -51,8 +55,23 @@ and share the **same world seed** — the seed is the room ID. Player movement, 
 breaks/placements and late-joiner world edits sync between clients; peers render as
 named avatars. `node scripts/mp-probe.mjs <seed>` joins a room headlessly for testing.
 
+The relay is a **light authority**, not a dumb broadcaster (`server/mpServer.ts` +
+`src/net/validate.ts`, one rule set shared by client and server). Every `block` edit is
+rejected unless it is a well-formed voxel (integers, in-world, known block id), within
+8 blocks of the sender's last reported eye position and roughly in the direction they are
+looking, and not buried inside any peer's body box. Senders are rate-limited by a token
+bucket (30 burst / 12 per second), rooms cap at 8 players, duplicate ids and non-finite
+coordinates drop the connection, and every rejected edit is **bounced back** with the
+authoritative value so a cheat self-reverts instead of desyncing. Clients run the same
+shape/burial/distance gates before applying a remote edit, so a compromised relay cannot
+push garbage into chunk arrays either.
+
+`node scripts/mp-security-test.mjs` drives a live relay with an observer, an attacker and
+a victim: it asserts the legit edit lands, and that reach cheats (`--teleport-edit`),
+burial, malformed frames and a 200-edit flood are all refused.
+
 ## Roadmap hooks
-- Server authority: `mpServer` is currently a broadcaster — add validation/ownership there.
+- Heavier authority: per-block ownership/lockout, movement sanity (fly/noclip speed), chat filters — the hooks all live behind `mpServer`'s `block`/`state` cases.
 - Better mobs: replace `MobAI.tsx` box placeholders with Quaternius CC0 glTF via `useGLTF` — AI loop untouched.
 - Day/night: animate the `<Sky>` sun position + light intensity in `Canvas3D.tsx`.
 - Textures: add PNGs + one `TEXTURE_OVERRIDES` line each.

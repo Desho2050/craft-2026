@@ -6,7 +6,7 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { useGameStore, type Mob } from '../store/useGameStore'
+import { useGameStore, MOB_MAX_HEALTH, type Mob } from '../store/useGameStore'
 import { isCollidable } from '../utils/blocks'
 
 const MOB_W = 0.6
@@ -17,9 +17,11 @@ const WANDER_SPEED = 0.9
 const ATTACK_RANGE = 1.5
 const ATTACK_COOLDOWN = 1.2
 const CHASE_RADIUS = 18
+const MAINTAIN_INTERVAL = 20 // seconds between population top-ups
 
 export default function MobAI() {
   const mobRefs = useRef<(THREE.Group | null)[]>([])
+  const maintainTimer = useRef(0)
 
   const world = useGameStore((s) => s.world)
   const mobs = useGameStore((s) => s.mobs)
@@ -31,6 +33,12 @@ export default function MobAI() {
     if (s.overlay !== 'none') return // mobs freeze while paused / inventory open
     const dt = Math.min(rawDt, 0.05)
     const [px, py, pz] = s.runtime.pos
+
+    maintainTimer.current += dt
+    if (maintainTimer.current > MAINTAIN_INTERVAL) {
+      maintainTimer.current = 0
+      s.maintainMobs()
+    }
 
     for (let i = 0; i < s.mobs.length; i++) {
       const mob = s.mobs[i]
@@ -68,6 +76,19 @@ export default function MobAI() {
             <boxGeometry args={[0.22, 0.7, 0.22]} />
             <meshLambertMaterial color="#3f7a3a" />
           </mesh>
+          {/* health bar — re-rendered when this mob's hp changes */}
+          {mob.health < MOB_MAX_HEALTH && (
+            <>
+              <mesh position={[0, MOB_H + 0.35, 0]}>
+                <planeGeometry args={[0.7, 0.09]} />
+                <meshBasicMaterial color="#7a1d1d" depthTest={false} transparent />
+              </mesh>
+              <mesh position={[0, MOB_H + 0.35, 0.001]} scale={[Math.max(0, mob.health / MOB_MAX_HEALTH), 1, 1]}>
+                <planeGeometry args={[0.7, 0.09]} />
+                <meshBasicMaterial color="#e04b4b" depthTest={false} transparent />
+              </mesh>
+            </>
+          )}
         </group>
       ))}
     </group>

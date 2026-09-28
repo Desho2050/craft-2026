@@ -14,15 +14,24 @@ import {
   type ItemId,
   type ItemStack,
   MAX_STACK,
+  APPLE,
+  ROTTEN_FLESH,
   isBlockItem,
+  isFood,
+  foodValue,
   itemTool,
   findRecipe,
 } from '../utils/recipes'
+import { particleHooks } from '../utils/particles'
 import type { Lang } from '../utils/i18n'
 import { connectNet, disconnectNet, getNet } from '../net/session'
 
 export type GameMode = 'survival' | 'creative'
 export type UiOverlay = 'none' | 'inventory' | 'pause' | 'death' | 'menu'
+
+export const MOB_MAX_HEALTH = 10
+export const MAX_MOBS = 6
+export const DESPAWN_RADIUS = 96
 
 export interface Mob {
   id: number
@@ -33,6 +42,7 @@ export interface Mob {
   yaw: number
   vx: number
   vz: number
+  health: number
   lastAttack: number
   nextTurn: number
 }
@@ -104,6 +114,8 @@ interface GameStore {
 
   // --- creative ---
   flying: boolean
+  /** true while the eat key is held — HUD shows a bite animation */
+  eating: boolean
 
   // --- actions ---
   setLang: (l: Lang) => void
@@ -117,6 +129,9 @@ interface GameStore {
   removeSelected: (n?: number) => ItemStack | null
   breakBlock: (x: number, y: number, z: number) => boolean
   placeBlock: (x: number, y: number, z: number) => boolean
+  eat: () => void
+  attack: (dir: { x: number; y: number; z: number }, eye: { x: number; y: number; z: number }) => boolean
+  maintainMobs: () => void
   setCraftSlot: (i: number, stack: ItemStack | null) => void
   craftResult: () => ItemStack | null
   consumeCraft: () => void
@@ -159,6 +174,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   selectedSlot: 0,
 
   flying: false,
+  eating: false,
 
   setLang: (lang) => {
     set({ lang })
@@ -237,6 +253,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   toggleFly: () => set((s) => ({ flying: !s.flying })),
 
   addItem: (item, count) => {
+    if (count <= 0 || !Number.isInteger(count)) return false
     const s = get()
     const addTo = (arr: (ItemStack | null)[]) => {
       let left = count
@@ -300,7 +317,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     s.world.setBlock(x, y, z, Block.Air)
     getNet()?.broadcastBlock(x, y, z, Block.Air)
-    if (s.mode === 'survival' && isBlockItem(b)) get().addItem(b, 1)
+    particleHooks.burst(b, x, y, z, 14)
+    if (s.mode === 'survival') {
+      if (isBlockItem(b)) get().addItem(b, 1)
+      // apple harvest: breaking leaves sometimes drops food
+      if (b === Block.Leaves && Math.random() < 0.25) get().addItem(APPLE, 1)
+    }
     get().save()
     return true
   },
@@ -317,9 +339,77 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return false
     s.world.setBlock(x, y, z, stack.item as Block)
     getNet()?.broadcastBlock(x, y, z, stack.item as Block)
+    particleHooks.burst(stack.item as Block, x, y, z, 6)
     if (s.mode === 'survival') get().removeSelected(1)
     get().save()
     return true
+  },
+
+  eat: () => {
+    const s = get()
+    if (s.mode !== 'survival' || s.overlay !== 'none') return
+    const stack = s.hotbar[s.selectedSlot]
+    if (!stack || !isFood(stack.item)) {
+      window.dispatchEvent(new CustomEvent('medocraft:toast', { detail: 'notFood' }))
+      return
+    }
+    if (s.hunger >= 20) return
+    const hotbar = [...s.hotbar]
+    hotbar[s.selectedSlot] = stack.count > 1 ? { ...stack, count: stack.count - 1 } : null
+    set({ hotbar, hunger: Math.min(20, s.hunger + foodValue(stack.item)) })
+    get().save()
+  },
+
+  attack: (dir, eye) => {
+    const s = get()
+    if (s.mode !== 'survival' || !s.mobs.length) return false
+    const held = s.hotbar[s.selectedSlot]
+    if (!held || itemTool(held.item) !== 'sword') {
+      window.dispatchEvent(new CustomEvent('medocraft:toast', { detail: 'needsSword' }))
+      return false
+    }
+    // nearest mob roughly along the aim ray, within melee range
+    const len = Math.hypot(dir.x, dir.y, dir.z)
+    if (len < 1e-6) return false
+    const dx = dir.x / len, dy = dir.y / len, dz = dir.z / len
+    let best = -1
+    let bestAlong = 0
+    for (let i = 0; i < s.mobs.length; i++) {
+      const mob = s.mobs[i]
+      const cx = mob.x - eye.x, cy = mob.y + 1 - eye.y, cz = mob.z - eye.z
+      const along = cx * dx + cy * dy + cz * dz
+      if (along < 0 || along > 3.5) continue
+      const perp = Math.hypot(cx - along * dx, cy - along * dy, cz - along * dz)
+      if (perp > 0.9) continue
+      if (best < 0 || along < bestAlong) {
+        best = i
+        bestAlong = along
+      }
+    }
+    if (best < 0) return false
+    const mobs = s.mobs.map((m, i) => (i === best ? { ...m, health: m.health - 5 } : m))
+    const dead = mobs[best].health <= 0
+    particleHooks.burst(Block.Leaves, Math.floor(mobs[best].x), Math.floor(mobs[best].y), Math.floor(mobs[best].z), 8)
+    set({ mobs: dead ? mobs.filter((_, i) => i !== best) : mobs })
+    if (dead) get().addItem(ROTTEN_FLESH, 1)
+    get().save()
+    return true
+  },
+
+  maintainMobs: () => {
+    const s = get()
+    if (s.mode !== 'survival' || !s.world) return
+    const [px, , pz] = s.runtime.pos
+    // mobs left far behind are stranded on terrain the player no longer sees —
+    // prune them so the population follows the player instead of freezing in place
+    const kept = s.mobs.filter((m) => Math.hypot(m.x - px, m.z - pz) <= DESPAWN_RADIUS)
+    if (kept.length >= MAX_MOBS) {
+      if (kept.length !== s.mobs.length) set({ mobs: kept })
+      return
+    }
+    let id = kept.reduce((m, b) => Math.max(m, b.id), -1) + 1
+    while (kept.length < MAX_MOBS) kept.push(makeMob(s.world, id++, px, pz))
+    set({ mobs: kept })
   },
 
   setCraftSlot: (i, stack) => {
@@ -438,24 +528,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
 /** hostile mobs spawn in a ring around the player at world load */
 function spawnMobs(world: VoxelWorld, px: number, _py: number, pz: number): Mob[] {
   const mobs: Mob[] = []
-  for (let i = 0; i < 6; i++) {
-    const angle = Math.random() * Math.PI * 2
-    const dist = 20 + Math.random() * 25
-    const x = px + Math.cos(angle) * dist
-    const z = pz + Math.sin(angle) * dist
-    const y = surfaceY(world, x, z)
-    mobs.push({
-      id: i,
-      kind: 'zombie',
-      x,
-      y,
-      z,
-      yaw: 0,
-      vx: 0,
-      vz: 0,
-      lastAttack: 0,
-      nextTurn: 0,
-    })
-  }
+  for (let i = 0; i < MAX_MOBS; i++) mobs.push(makeMob(world, i, px, pz))
   return mobs
+}
+
+function makeMob(world: VoxelWorld, id: number, px: number, pz: number): Mob {
+  const angle = Math.random() * Math.PI * 2
+  const dist = 20 + Math.random() * 25
+  const x = px + Math.cos(angle) * dist
+  const z = pz + Math.sin(angle) * dist
+  return {
+    id,
+    kind: 'zombie',
+    x,
+    y: surfaceY(world, x, z),
+    z,
+    yaw: 0,
+    vx: 0,
+    vz: 0,
+    health: MOB_MAX_HEALTH,
+    lastAttack: 0,
+    nextTurn: 0,
+  }
 }

@@ -9,6 +9,7 @@ import { Sky } from '@react-three/drei'
 import Player from './Player'
 import VoxelWorldRenderer from './VoxelWorld'
 import MobAI from './MobAI'
+import Particles from './Particles'
 import RemotePlayers from './RemotePlayers'
 import { useGameStore } from '../store/useGameStore'
 
@@ -35,6 +36,7 @@ export default function Canvas3D() {
         <VoxelWorldRenderer key={`world-${seed}`} />
         <Player key={`player-${seed}`} />
         <MobAI />
+        <Particles />
         <RemotePlayers />
       </Suspense>
     </Canvas>

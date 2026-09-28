@@ -30,6 +30,7 @@ export default function Player() {
   const locked = useRef(false)
   const highlightRef = useRef<THREE.LineSegments>(null)
   const lastInteract = useRef<'break' | 'place' | 'pick' | null>(null)
+  const ateOnce = useRef(false)
 
   const store = useGameStore
 
@@ -56,6 +57,10 @@ export default function Player() {
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(window as unknown as Record<string, unknown>).__mcSetLocked = (v: boolean) => (locked.current = v)
+    ;(window as unknown as Record<string, unknown>).__mcSetAim = (y: number, p: number) => {
+      yaw.current = y
+      pitch.current = p
+    }
   }, [])
 
   // pointer lock + mouse handling
@@ -139,7 +144,7 @@ export default function Player() {
 
     camera.position.set(pos.current.x, pos.current.y + EYE_HEIGHT, pos.current.z)
     s.runtime.pos = [pos.current.x, pos.current.y, pos.current.z]
-    getNet()?.broadcastState(pos.current.x, pos.current.y, pos.current.z, yaw.current, performance.now())
+    getNet()?.broadcastState(pos.current.x, pos.current.y, pos.current.z, yaw.current, pitch.current, performance.now())
 
     // survival ticks (hunger drain / regen)
     if (s.mode === 'survival') s.tickSurvival(dt, heldKeys.has('ShiftLeft') && move.lengthSq() > 0)
@@ -155,28 +160,44 @@ export default function Player() {
       if (hit) hl.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5)
     }
 
-    // ---- break / place ----
-    if (lastInteract.current && cooldown.current <= 0 && locked.current && s.overlay === 'none') {
-      cooldown.current = BREAK_COOLDOWN
-      const action = lastInteract.current
-      lastInteract.current = null
-      if (hit) {
-        if (action === 'break') {
-          s.breakBlock(hit.x, hit.y, hit.z)
-        } else if (action === 'place') {
-          s.placeBlock(hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz)
-        } else if (action === 'pick' && s.mode === 'creative') {
-          // middle-click pick block
-          s.setSel(s.selectedSlot, { item: hit.block, count: 64 })
+    // ---- break / attack / place ----
+    if (!uiBlocked && locked.current) {
+      // eat: hold R with food selected — one attempt per press, no toast spam
+      const wantEat = heldKeys.has('KeyR')
+      store.setState({ eating: wantEat })
+      if (wantEat) {
+        if (!ateOnce.current) {
+          ateOnce.current = true
+          s.eat()
         }
+      } else {
+        ateOnce.current = false
       }
+    } else if (s.eating) {
+      store.setState({ eating: false })
     }
 
-    // keep chunk streaming informed
-    const pcx = Math.floor(pos.current.x / 16)
-    const pcz = Math.floor(pos.current.z / 16)
-    if (pcx !== s.runtime.pos[0] || pcz !== s.runtime.pos[2]) {
-      /* no-op: VoxelWorld reads runtime.pos itself each tick */
+    if (!uiBlocked && locked.current) {
+      if (lastInteract.current && cooldown.current <= 0 && s.overlay === 'none') {
+        cooldown.current = BREAK_COOLDOWN
+        const action = lastInteract.current
+        lastInteract.current = null
+        if (action === 'break' && s.mode === 'survival') {
+          // mobs live in front of blocks — melee wins when something is aimed at
+          const eye = { x: camera.position.x, y: camera.position.y, z: camera.position.z }
+          s.attack(dir, eye)
+        }
+        if (hit) {
+          if (action === 'break') {
+            s.breakBlock(hit.x, hit.y, hit.z)
+          } else if (action === 'place') {
+            s.placeBlock(hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz)
+          } else if (action === 'pick' && s.mode === 'creative') {
+            // middle-click pick block
+            s.setSel(s.selectedSlot, { item: hit.block, count: 64 })
+          }
+        }
+      }
     }
   })
 
