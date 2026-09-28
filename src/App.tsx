@@ -8,11 +8,19 @@ import HUD from './components/UI/HUD'
 import Inventory from './components/UI/Inventory'
 import MainMenu from './components/UI/MainMenu'
 import { useGameStore } from './store/useGameStore'
+import { audioDebug } from './utils/audio'
 import { dirFor, useT } from './utils/i18n'
 
-// dev-only: automation/testing can drive the store directly (block edits, world queries)
+// dev-only: automation/testing can drive the store directly (block edits, world queries, time of day)
 if (import.meta.env.DEV) {
-  ;(window as unknown as Record<string, unknown>).__mcGame = useGameStore
+  const w = window as unknown as Record<string, unknown>
+  w.__mcGame = useGameStore
+  w.__mcSetTime = (t: number) => {
+    const s = useGameStore.getState()
+    s.runtime.time = ((t % 1) + 1) % 1
+    s.tickDay(0) // recompute the reactive phase without advancing the clock
+  }
+  w.__mcAudioDebug = () => audioDebug()
 }
 
 export default function App() {
@@ -66,6 +74,8 @@ export default function App() {
   const closeOverlay = useGameStore((s) => s.closeOverlay)
   const respawn = useGameStore((s) => s.respawn)
   const health = useGameStore((s) => s.health)
+  const sound = useGameStore((s) => s.sound)
+  const setSound = useGameStore((s) => s.setSound)
 
   if (screen === 'menu') return <MainMenu />
 
@@ -85,6 +95,13 @@ export default function App() {
           </button>
           <button className="mc-btn mc-amber" onClick={() => quitToMenu()}>
             {t('pause.save')}
+          </button>
+          <button
+            className="mt-3 self-center rounded-lg bg-white/10 px-4 py-1.5 text-sm hover:bg-white/20"
+            onClick={() => setSound(!sound)}
+            title={t('menu.sound')}
+          >
+            {sound ? '🔊' : '🔇'} {t('menu.sound')}
           </button>
           <p className="mt-4 text-xs text-white/50">{t('menu.help')}</p>
         </Overlay>

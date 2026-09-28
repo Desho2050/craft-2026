@@ -11,7 +11,9 @@ Licenses were verified on the source pages on 2026-09-28.
 | Planks, water | `public/textures/{planks,water}.png` | Kenney — [Retro Textures Fantasy](https://kenney.nl/assets/retro-textures-fantasy) | CC0 |
 | Log, glass, snow, cactus, sandstone, grass-side variants | *procedural* (`src/utils/textures.ts`) | generated 16×16 canvas art, deterministic | — (yours) |
 | Arabic UI fonts (Cairo, Noto Kufi Arabic, Rubik) | Google Fonts `@import` in `src/index.css` | fonts.google.com — all OFL | OFL |
-| Sky | drei `<Sky>` (Preetham atmosphere shader) | three.js ecosystem | MIT |
+| Sky / daylight | `three/examples/jsm/objects/Sky` dome driven by `src/components/DayNight.tsx` | three.js ecosystem (Preetham atmosphere) | MIT |
+| Stars | `THREE.Points` shell built in `src/components/DayNight.tsx` | procedural directions | — (yours) |
+| All SFX | `src/utils/audio.ts` | synthesised at runtime (noise + biquad + oscillator) | — (yours) |
 
 To swap any block for real art: drop a PNG into `public/textures/` and add a
 line to `TEXTURE_OVERRIDES` in `src/utils/textures.ts` — that's the whole pipeline.
@@ -27,6 +29,9 @@ line to `TEXTURE_OVERRIDES` in `src/utils/textures.ts` — that's the whole pipe
   BlockTop/Mixcraft on PlanetMinecraft (redistribution restricted by default terms).
 
 ### Sounds (CC0, direct zips verified)
+Week 2 shipped **zero** audio files — every sound is synthesised in `src/utils/audio.ts`, which keeps the
+repo licence-free and the bundle small. These packs stay here as the upgrade path if sampled hits ever
+beat the synthesis:
 - Block break/place impacts — Kenney [Impact Sounds](https://kenney.nl/assets/impact-sounds):
   `https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip`
 - Footsteps/UI — Kenney [RPG Audio](https://kenney.nl/assets/rpg-audio) / [Digital Audio](https://kenney.nl/assets/digital-audio)
@@ -42,7 +47,8 @@ line to `TEXTURE_OVERRIDES` in `src/utils/textures.ts` — that's the whole pipe
 
 ### Sky / environment
 - Poly Haven CC0 HDRIs: `https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/<name>_1k.hdr`
-  (e.g. `kloofendal_48d_partly_cloudy_puresky`). Currently unnecessary — `<Sky>` + fog already covers day cycle; add `<Environment>` if you want HDR reflections.
+  (e.g. `kloofendal_48d_partly_cloudy_puresky`). Still unnecessary — the driven `<Sky>` dome + fog + star
+  shell already cover the day cycle; add `<Environment>` only if you want HDR reflections.
 
 ## Attribution text (only needed if you add CC-BY assets later)
 CC0 requires nothing. If you later add CC-BY items, credit them in an in-game

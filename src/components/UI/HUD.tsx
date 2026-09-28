@@ -7,6 +7,7 @@ import { useGameStore } from '../../store/useGameStore'
 import { BLOCKS, Block } from '../../utils/blocks'
 import { isBlockItem, itemToken } from '../../utils/recipes'
 import { useT, translate } from '../../utils/i18n'
+import { clockOf, type DayPhase } from '../../utils/dayCycle'
 import { useNetStore } from '../../net/session'
 import ItemIcon from './ItemIcon'
 
@@ -125,12 +126,37 @@ export default function HUD() {
         </div>
       )}
 
+      <DayChip />
+
       {/* toast */}
       {toast && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 rounded-lg bg-black/70 px-4 py-2 text-white shadow-lg">
           {toast}
         </div>
       )}
+    </div>
+  )
+}
+
+const PHASE_ICON: Record<DayPhase, string> = { dawn: '🌅', day: '☀️', dusk: '🌇', night: '🌙' }
+
+/** clock chip — its own component so the 1 Hz tick doesn't re-render the HUD */
+function DayChip() {
+  const phase = useGameStore((s) => s.dayPhase)
+  const lang = useGameStore((s) => s.lang)
+  const [clock, setClock] = useState(() => clockOf(useGameStore.getState().runtime.time))
+
+  useEffect(() => {
+    const id = setInterval(() => setClock(clockOf(useGameStore.getState().runtime.time)), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div
+      dir="ltr"
+      className="absolute top-3 end-3 rounded-md bg-black/40 px-3 py-1 text-sm text-white/90 backdrop-blur-sm"
+    >
+      {PHASE_ICON[phase]} {clock} · {translate(lang, `phase.${phase}`)}
     </div>
   )
 }

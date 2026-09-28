@@ -7,12 +7,20 @@ import { APPLE, ROTTEN_FLESH, SWORD } from '../src/utils/recipes.ts'
 import { EYE_HEIGHT } from '../src/utils/collision.ts'
 import { isBlockShapeValid, overlapsPlayer, withinReach } from '../src/net/validate.ts'
 import { setParticleHooks } from '../src/utils/particles.ts'
+import { DAY_LENGTH, advanceDay, clockOf, phaseOf, skyAt } from '../src/utils/dayCycle.ts'
+import { playSfx, sfxEnabled } from '../src/utils/audio.ts'
 import { useGameStore, MAX_MOBS, MOB_MAX_HEALTH, DESPAWN_RADIUS } from '../src/store/useGameStore.ts'
 import * as THREE from 'three'
 
 let failures = 0
 // store toasts dispatch DOM events — stub enough of window for headless runs
 ;(globalThis as Record<string, unknown>).window = { dispatchEvent: () => {} }
+const memStore = new Map<string, string>()
+;(globalThis as Record<string, unknown>).localStorage = {
+  getItem: (k: string) => memStore.get(k) ?? null,
+  setItem: (k: string, v: string) => void memStore.set(k, v),
+  removeItem: (k: string) => void memStore.delete(k),
+}
 const check = (name: string, ok: boolean) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`)
   if (!ok) failures++
@@ -96,7 +104,9 @@ check('non-food is not eaten', useGameStore.getState().hunger === 6)
 
 // melee: sword 2 blocks ahead at eye height
 const target = useGameStore.getState().mobs[0]
-useGameStore.setState({ runtime: { pos: [target.x - 2, target.y, target.z], onGround: true } })
+useGameStore.setState({
+  runtime: { ...useGameStore.getState().runtime, pos: [target.x - 2, target.y, target.z], onGround: true },
+})
 const eye = { x: target.x - 2, y: target.y + EYE_HEIGHT, z: target.z }
 const aim = { x: 1, y: 0, z: 0 }
 s0.setSel(0, { item: SWORD, count: 1 })
@@ -134,6 +144,32 @@ check('place bursts particles', bursts.at(-1)?.b === Block.Dirt && (bursts.at(-1
 check('break clears the block', s0.breakBlock(bx, by, bz) && wm.getBlock(bx, by, bz) === Block.Air)
 check('break bursts particles', bursts.at(-1)?.b === Block.Dirt && (bursts.at(-1)?.n ?? 0) > 0)
 setParticleHooks(null)
+
+/* ---------- day/night cycle ---------- */
+check('noon is brightest', skyAt(0.25).light > skyAt(0).light && skyAt(0.25).light > skyAt(0.5).light)
+check('midnight is darkest', skyAt(0.75).light < skyAt(0).light && skyAt(0.75).light < skyAt(0.5).light)
+check('phase map', phaseOf(0.02) === 'dawn' && phaseOf(0.25) === 'day' && phaseOf(0.48) === 'dusk' && phaseOf(0.75) === 'night')
+check('sun above horizon by day', skyAt(0.25).sun[1] > 0 && skyAt(0.75).sun[1] < 0)
+check('stars only at night', skyAt(0.75).stars > 0.9 && skyAt(0.25).stars === 0)
+check('clock reads midnight at 0.75', clockOf(0.75) === '00:00' && clockOf(0.25) === '12:00')
+check('advance wraps past midnight', advanceDay(0.995, DAY_LENGTH * 0.02) > 0 && advanceDay(0.995, DAY_LENGTH * 0.02) < 0.05)
+check('lighting stays bounded', Object.values(skyAt(0.75)).every((v) => typeof v !== 'number' || (v >= 0 && v < 1000)))
+
+s0.tickDay(DAY_LENGTH * 0.25) // quarter cycle forward
+const afterTick = useGameStore.getState().runtime.time
+check('tickDay advances the clock', afterTick > 0.1 && afterTick < 0.5)
+check('tickDay updates the phase', useGameStore.getState().dayPhase === phaseOf(afterTick))
+useGameStore.getState().runtime.time = 0.1
+s0.tickDay(0)
+check('tickDay wraps safely', useGameStore.getState().runtime.time === 0.1)
+check('sfx is silent without WebAudio', playSfx('break') === undefined && sfxEnabled())
+
+useGameStore.getState().runtime.time = 0.7
+useGameStore.getState().save()
+useGameStore.getState().startGame({ mode: 'survival', fromSave: true })
+check('saved clock survives a reload', useGameStore.getState().runtime.time === 0.7)
+check('phase restores from the saved clock', useGameStore.getState().dayPhase === phaseOf(0.7))
+useGameStore.getState().runtime.time = 0.1
 
 /* ---------- MP relay validation ---------- */
 const near = { x: 10, y: 20, z: 10 }

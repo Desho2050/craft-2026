@@ -12,6 +12,7 @@ import { useGameStore } from '../store/useGameStore'
 import { raycastVoxel } from '../utils/world'
 import { canJump, EYE_HEIGHT, stepPlayer, surfaceY } from '../utils/collision'
 import { heldKeys, installKeyboard } from '../utils/input'
+import { playSfx } from '../utils/audio'
 import { getNet } from '../net/session'
 
 const MOUSE_SENS = 0.0022
@@ -27,6 +28,7 @@ export default function Player() {
   const pitch = useRef(0)
   const onGround = useRef(false)
   const cooldown = useRef(0)
+  const stepDist = useRef(0)
   const locked = useRef(false)
   const highlightRef = useRef<THREE.LineSegments>(null)
   const lastInteract = useRef<'break' | 'place' | 'pick' | null>(null)
@@ -134,6 +136,17 @@ export default function Player() {
 
     stepPlayer(world, pos.current, vel.current, move, dt, s.flying && s.mode === 'creative')
     onGround.current = vel.current.y === 0 && !s.flying
+
+    // footsteps: one click per stride while walking on solid ground
+    if (move.lengthSq() > 0 && onGround.current) {
+      stepDist.current += dt * 4.3
+      if (stepDist.current >= 2.2) {
+        stepDist.current = 0
+        playSfx('step')
+      }
+    } else {
+      stepDist.current = 0
+    }
 
     // void safety net
     if (pos.current.y < -10) {

@@ -1,11 +1,11 @@
 /**
  * Main R3F canvas: sky, fog, lights, and the game scene graph.
  * Shadows stay off — with millions of voxels, lambert + baked-feel AO is the
- * right trade for stable 60fps on mid hardware.
+ * right trade for stable 60fps on mid hardware. Lighting lives in <DayNight/>.
  */
 import { Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Sky } from '@react-three/drei'
+import DayNight from './DayNight'
 import Player from './Player'
 import VoxelWorldRenderer from './VoxelWorld'
 import MobAI from './MobAI'
@@ -25,11 +25,7 @@ export default function Canvas3D() {
       gl={{ antialias: false, powerPreference: 'high-performance' }}
       style={{ position: 'absolute', inset: 0 }}
     >
-      <Sky sunPosition={[100, 60, 100]} turbidity={2} rayleigh={0.6} />
-      <fog attach="fog" args={['#cfe8ff', 40, 180]} />
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[80, 120, 40]} intensity={1.1} />
-      <hemisphereLight args={['#bde3ff', '#5a6b3f', 0.5]} />
+      <DayNight />
 
       <Suspense fallback={null}>
         {/* key remounts chunk groups when a new world starts */}

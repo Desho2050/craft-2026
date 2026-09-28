@@ -23,6 +23,8 @@ import {
   findRecipe,
 } from '../utils/recipes'
 import { particleHooks } from '../utils/particles'
+import { playSfx, setSfxEnabled } from '../utils/audio'
+import { advanceDay, phaseOf, type DayPhase } from '../utils/dayCycle'
 import type { Lang } from '../utils/i18n'
 import { connectNet, disconnectNet, getNet } from '../net/session'
 
@@ -56,6 +58,8 @@ interface SaveData {
   hotbar: (ItemStack | null)[]
   inventory: (ItemStack | null)[]
   position: [number, number, number]
+  /** day clock 0..1, 0 = sunrise */
+  time: number
   modifications: string
 }
 
@@ -97,7 +101,9 @@ interface GameStore {
   world: VoxelWorld | null
   spawnPos: [number, number, number]
   /** updated every frame by <Player/> — mutable on purpose to avoid re-renders */
-  runtime: { pos: [number, number, number]; onGround: boolean }
+  runtime: { pos: [number, number, number]; onGround: boolean; time: number }
+  /** coarse day phase — reactive, only changes 4x per cycle */
+  dayPhase: DayPhase
   mobs: Mob[]
   mobCounter: number
 
@@ -116,9 +122,13 @@ interface GameStore {
   flying: boolean
   /** true while the eat key is held — HUD shows a bite animation */
   eating: boolean
+  /** procedural SFX on/off, persisted with the other settings */
+  sound: boolean
 
   // --- actions ---
   setLang: (l: Lang) => void
+  setSound: (on: boolean) => void
+  tickDay: (dt: number) => void
   startGame: (opts: { seed?: string; mode: GameMode; fromSave?: boolean; mp?: { url: string; name: string } }) => void
   quitToMenu: () => void
   openOverlay: (o: UiOverlay) => void
@@ -143,12 +153,21 @@ interface GameStore {
   save: () => void
 }
 
-function loadSettings(): { lang: Lang } {
+function loadSettings(): { lang: Lang; sound: boolean } {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<{ lang: Lang; sound: boolean }>
+      return { lang: parsed.lang ?? 'ar', sound: parsed.sound ?? true }
+    }
   } catch { /* ignore */ }
-  return { lang: 'ar' }
+  return { lang: 'ar', sound: true }
+}
+
+function persistSettings(s: { lang: Lang; sound: boolean }): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ lang: s.lang, sound: s.sound }))
+  } catch { /* ignore */ }
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -160,7 +179,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   world: null,
   spawnPos: [8, 40, 8],
-  runtime: { pos: [8, 40, 8], onGround: false },
+  runtime: { pos: [8, 40, 8], onGround: false, time: 0.1 },
+  dayPhase: 'day',
   mobs: [],
   mobCounter: 0,
 
@@ -175,12 +195,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   flying: false,
   eating: false,
+  sound: loadSettings().sound,
 
   setLang: (lang) => {
     set({ lang })
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ lang }))
-    } catch { /* ignore */ }
+    persistSettings(get())
+  },
+
+  setSound: (sound) => {
+    set({ sound })
+    setSfxEnabled(sound)
+    persistSettings(get())
+    if (sound) playSfx('click')
+  },
+
+  tickDay: (dt) => {
+    const s = get()
+    const time = advanceDay(s.runtime.time, dt)
+    s.runtime.time = time
+    const phase = phaseOf(time)
+    if (phase !== s.dayPhase) set({ dayPhase: phase })
   },
 
   startGame: ({ seed, mode, fromSave, mp: opts }) => {
@@ -204,7 +238,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
           hotbar: saved.hotbar ?? Array(9).fill(null),
           inventory: saved.inventory ?? Array(27).fill(null),
           spawnPos: pos,
-          runtime: { pos: [...pos] as [number, number, number], onGround: false },
+          runtime: { pos: [...pos] as [number, number, number], onGround: false, time: saved.time ?? 0.1 },
+          dayPhase: phaseOf(saved.time ?? 0.1),
           mobs: spawnMobs(world, pos[0], pos[1], pos[2]),
           screen: 'game',
           overlay: 'none',
@@ -230,7 +265,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       inventory: Array(27).fill(null),
       craftingGrid: Array(9).fill(null),
       spawnPos: [8.5, spawnY, 8.5],
-      runtime: { pos: [8.5, spawnY, 8.5], onGround: false },
+      runtime: { pos: [8.5, spawnY, 8.5], onGround: false, time: 0.1 },
+      dayPhase: 'day',
       screen: 'game',
       overlay: 'none',
       flying: false,
@@ -318,6 +354,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     s.world.setBlock(x, y, z, Block.Air)
     getNet()?.broadcastBlock(x, y, z, Block.Air)
     particleHooks.burst(b, x, y, z, 14)
+    playSfx('break')
     if (s.mode === 'survival') {
       if (isBlockItem(b)) get().addItem(b, 1)
       // apple harvest: breaking leaves sometimes drops food
@@ -340,6 +377,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     s.world.setBlock(x, y, z, stack.item as Block)
     getNet()?.broadcastBlock(x, y, z, stack.item as Block)
     particleHooks.burst(stack.item as Block, x, y, z, 6)
+    playSfx('place')
     if (s.mode === 'survival') get().removeSelected(1)
     get().save()
     return true
@@ -357,6 +395,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const hotbar = [...s.hotbar]
     hotbar[s.selectedSlot] = stack.count > 1 ? { ...stack, count: stack.count - 1 } : null
     set({ hotbar, hunger: Math.min(20, s.hunger + foodValue(stack.item)) })
+    playSfx('eat')
     get().save()
   },
 
@@ -390,6 +429,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const mobs = s.mobs.map((m, i) => (i === best ? { ...m, health: m.health - 5 } : m))
     const dead = mobs[best].health <= 0
     particleHooks.burst(Block.Leaves, Math.floor(mobs[best].x), Math.floor(mobs[best].y), Math.floor(mobs[best].z), 8)
+    playSfx('hit')
     set({ mobs: dead ? mobs.filter((_, i) => i !== best) : mobs })
     if (dead) get().addItem(ROTTEN_FLESH, 1)
     get().save()
@@ -438,6 +478,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     })
     set({ craftingGrid: grid })
     get().addItem(rec.result.item, rec.result.count)
+    playSfx('craft')
     get().save()
   },
 
@@ -460,6 +501,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (s.mode !== 'survival') return
     const health = Math.max(0, s.health - n)
     set({ health })
+    if (health < s.health) playSfx('hurt')
     if (health === 0) set({ overlay: 'death' })
   },
 
@@ -517,6 +559,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       hotbar: s.hotbar,
       inventory: s.inventory,
       position: s.runtime.pos,
+      time: s.runtime.time,
       modifications: s.world.serializeModifications(),
     }
     try {
@@ -524,6 +567,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     } catch { /* storage full / private mode */ }
   },
 }))
+
+// honour the persisted mute before anything can make noise
+setSfxEnabled(useGameStore.getState().sound)
 
 /** hostile mobs spawn in a ring around the player at world load */
 function spawnMobs(world: VoxelWorld, px: number, _py: number, pz: number): Mob[] {

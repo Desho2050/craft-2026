@@ -11,6 +11,8 @@ export default function MainMenu() {
   const startGame = useGameStore((s) => s.startGame)
   const setLang = useGameStore((s) => s.setLang)
   const lang = useGameStore((s) => s.lang)
+  const sound = useGameStore((s) => s.sound)
+  const setSound = useGameStore((s) => s.setSound)
 
   const [mode, setMode] = useState<'survival' | 'creative'>('survival')
   const [seed, setSeed] = useState('')
@@ -96,6 +98,13 @@ export default function MainMenu() {
         <div className="mt-5 flex items-center justify-between text-sm">
           <button onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')} className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20">
             🌐 {t('menu.language')}
+          </button>
+          <button
+            onClick={() => setSound(!sound)}
+            className="rounded-lg bg-white/10 px-3 py-1.5 hover:bg-white/20"
+            title={t('menu.sound')}
+          >
+            {sound ? '🔊' : '🔇'}
           </button>
           <span className="text-white/40">v0.1 · WebGL</span>
         </div>

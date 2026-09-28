@@ -8,6 +8,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore, MOB_MAX_HEALTH, type Mob } from '../store/useGameStore'
 import { isCollidable } from '../utils/blocks'
+import { playSfx } from '../utils/audio'
 
 const MOB_W = 0.6
 const MOB_H = 1.9
@@ -22,6 +23,7 @@ const MAINTAIN_INTERVAL = 20 // seconds between population top-ups
 export default function MobAI() {
   const mobRefs = useRef<(THREE.Group | null)[]>([])
   const maintainTimer = useRef(0)
+  const growlTimer = useRef(0)
 
   const world = useGameStore((s) => s.world)
   const mobs = useGameStore((s) => s.mobs)
@@ -40,14 +42,24 @@ export default function MobAI() {
       s.maintainMobs()
     }
 
+    let nearest = Infinity
     for (let i = 0; i < s.mobs.length; i++) {
       const mob = s.mobs[i]
       aiStep(world, mob, px, py, pz, dt, state.clock.elapsedTime, s)
+      const d = Math.hypot(mob.x - px, mob.z - pz)
+      if (d < nearest) nearest = d
       const g = mobRefs.current[i]
       if (g) {
         g.position.set(mob.x, mob.y, mob.z)
         g.rotation.y = mob.yaw
       }
+    }
+
+    // a zombie close by lets you know it is there — at most one growl every few seconds
+    growlTimer.current -= dt
+    if (nearest < 9 && growlTimer.current <= 0) {
+      growlTimer.current = 4 + Math.random() * 4
+      playSfx('growl')
     }
   })
 
