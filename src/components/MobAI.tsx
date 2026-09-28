@@ -20,6 +20,17 @@ const ATTACK_COOLDOWN = 1.2
 const CHASE_RADIUS = 18
 const MAINTAIN_INTERVAL = 20 // seconds between population top-ups
 
+/**
+ * Mob palette. Every lambert part carries a small emissive floor: the day/night
+ * rig drops the sun to near zero at midnight, and a hostile that vanishes in the
+ * dark is a fairness bug, not atmosphere. Parts are deliberately different hues
+ * (skin / torn shirt / trousers) so the silhouette reads at a glance.
+ */
+const SKIN = { color: '#7cc95e', emissive: '#203f17' }
+const SHIRT = { color: '#2f7391', emissive: '#0d232c' }
+const PANTS = { color: '#41508f', emissive: '#131a35' }
+const EYE = '#ffe27a'
+
 export default function MobAI() {
   const mobRefs = useRef<(THREE.Group | null)[]>([])
   const maintainTimer = useRef(0)
@@ -69,24 +80,40 @@ export default function MobAI() {
     <group>
       {mobs.map((mob, i) => (
         <group key={mob.id} ref={(el) => (mobRefs.current[i] = el)}>
-          {/* body */}
+          {/* torso — torn shirt */}
           <mesh position={[0, MOB_H * 0.45, 0]}>
             <boxGeometry args={[MOB_W, MOB_H * 0.6, MOB_W * 0.7]} />
-            <meshLambertMaterial color="#3f7a3a" />
+            <meshLambertMaterial {...SHIRT} />
           </mesh>
           {/* head */}
           <mesh position={[0, MOB_H * 0.88, 0]}>
             <boxGeometry args={[MOB_W * 0.8, MOB_W * 0.8, MOB_W * 0.8]} />
-            <meshLambertMaterial color="#59914f" />
+            <meshLambertMaterial {...SKIN} />
           </mesh>
-          {/* arms */}
+          {/* eyes: unlit, so they still catch you across a dark field */}
+          {[-0.1, 0.1].map((ex) => (
+            <mesh key={ex} position={[ex, MOB_H * 0.9, MOB_W * 0.4 + 0.01]}>
+              <boxGeometry args={[0.09, 0.09, 0.02]} />
+              <meshBasicMaterial color={EYE} toneMapped={false} />
+            </mesh>
+          ))}
+          {/* arms out front, the classic shamble */}
           <mesh position={[-MOB_W * 0.55, MOB_H * 0.55, MOB_W * 0.35]} rotation={[-0.9, 0, 0]}>
             <boxGeometry args={[0.22, 0.7, 0.22]} />
-            <meshLambertMaterial color="#3f7a3a" />
+            <meshLambertMaterial {...SKIN} />
           </mesh>
           <mesh position={[MOB_W * 0.55, MOB_H * 0.55, MOB_W * 0.35]} rotation={[-0.9, 0, 0]}>
             <boxGeometry args={[0.22, 0.7, 0.22]} />
-            <meshLambertMaterial color="#3f7a3a" />
+            <meshLambertMaterial {...SKIN} />
+          </mesh>
+          {/* legs */}
+          <mesh position={[-MOB_W * 0.24, 0.18, 0]}>
+            <boxGeometry args={[0.24, 0.36, MOB_W * 0.6]} />
+            <meshLambertMaterial {...PANTS} />
+          </mesh>
+          <mesh position={[MOB_W * 0.24, 0.18, 0]}>
+            <boxGeometry args={[0.24, 0.36, MOB_W * 0.6]} />
+            <meshLambertMaterial {...PANTS} />
           </mesh>
           {/* health bar — re-rendered when this mob's hp changes */}
           {mob.health < MOB_MAX_HEALTH && (
